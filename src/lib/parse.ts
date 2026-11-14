@@ -142,6 +142,7 @@ export function detectAllergens(raw: string): string[] {
 export function completenessOf(input: {
   name?: string;
   brand?: string;
+  brandOwner?: string;
   manufacturer?: string;
   scCode?: string;
   ingredientsRaw?: string;
@@ -151,6 +152,7 @@ export function completenessOf(input: {
   const fields = [
     !!input.name,
     !!input.brand,
+    !!input.brandOwner,
     !!input.manufacturer,
     !!input.scCode,
     !!input.ingredientsRaw,

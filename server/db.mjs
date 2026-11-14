@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 const VOTE_FIELDS = [
   ['name', 'name'],
   ['brand', 'brand'],
+  ['brandOwner', 'brand_owner'],
   ['manufacturer', 'manufacturer'],
   ['category', 'category'],
   ['kind', 'kind'],
@@ -45,6 +46,7 @@ export function openDatabase(filename = 'server/data/product-library.sqlite') {
       barcode TEXT PRIMARY KEY,
       name TEXT NOT NULL DEFAULT '',
       brand TEXT NOT NULL DEFAULT '',
+      brand_owner TEXT NOT NULL DEFAULT '',
       manufacturer TEXT NOT NULL DEFAULT '',
       category TEXT,
       kind TEXT,
@@ -97,6 +99,10 @@ export function openDatabase(filename = 'server/data/product-library.sqlite') {
       created_at INTEGER NOT NULL
     );
   `);
+  const productColumns = new Set(db.pragma('table_info(products)').map((column) => column.name));
+  if (!productColumns.has('brand_owner')) {
+    db.exec("ALTER TABLE products ADD COLUMN brand_owner TEXT NOT NULL DEFAULT ''");
+  }
   return db;
 }
 
@@ -129,6 +135,7 @@ export function mapProduct(row) {
     barcode: row.barcode,
     name: row.name,
     brand: row.brand,
+    brandOwner: row.brand_owner,
     manufacturer: row.manufacturer,
     category: row.category ?? undefined,
     kind: row.kind ?? undefined,
@@ -148,6 +155,12 @@ export function getProduct(db, barcode) {
   return mapProduct(db.prepare('SELECT * FROM products WHERE barcode = ? AND status = ?').get(barcode, 'active'));
 }
 
+export function cacheExternalProduct(db, product) {
+  const now = Date.now();
+  upsertBaseProduct(db, product.barcode, product, now);
+  return getProduct(db, product.barcode);
+}
+
 function outputValue(cleaned, apiField, dbField) {
   if (apiField === 'nutrition') return cleaned.nutrition ? JSON.stringify(cleaned.nutrition) : null;
   const value = cleaned[apiField];
@@ -164,16 +177,17 @@ function upsertBaseProduct(db, barcode, cleaned, now) {
   if (!existing) {
     db.prepare(
       `INSERT INTO products (
-        barcode, name, brand, manufacturer, category, kind, ingredients_raw,
+        barcode, name, brand, brand_owner, manufacturer, category, kind, ingredients_raw,
         shelf_life_months, package_grams, nutrition_json, status, created_at, updated_at
       ) VALUES (
-        @barcode, @name, @brand, @manufacturer, @category, @kind, @ingredients_raw,
+        @barcode, @name, @brand, @brand_owner, @manufacturer, @category, @kind, @ingredients_raw,
         @shelf_life_months, @package_grams, @nutrition_json, 'active', @created_at, @updated_at
       )`,
     ).run({
       barcode,
       name: named.name ?? '',
       brand: named.brand ?? '',
+      brand_owner: named.brand_owner ?? '',
       manufacturer: named.manufacturer ?? '',
       category: named.category,
       kind: named.kind,
@@ -321,6 +335,7 @@ export function updateProductAsAdmin(db, barcode, patch) {
   const fields = {
     name: 'name',
     brand: 'brand',
+    brandOwner: 'brand_owner',
     manufacturer: 'manufacturer',
     category: 'category',
     kind: 'kind',
@@ -363,10 +378,10 @@ export function searchProducts(db, query = '', limit = 50) {
   return db
     .prepare(
       `SELECT * FROM products
-       WHERE ? = '' OR barcode LIKE ? OR name LIKE ? OR brand LIKE ? OR manufacturer LIKE ?
+       WHERE ? = '' OR barcode LIKE ? OR name LIKE ? OR brand LIKE ? OR brand_owner LIKE ? OR manufacturer LIKE ?
        ORDER BY updated_at DESC LIMIT ?`,
     )
-    .all(query, needle, needle, needle, needle, limit)
+    .all(query, needle, needle, needle, needle, needle, limit)
     .map(mapProduct);
 }
 

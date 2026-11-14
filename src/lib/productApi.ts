@@ -1,7 +1,6 @@
 import type { PantryItem, PetCategory, Settings, Sku } from '../types';
 import { buildChecks } from './engine';
 import {
-  PRODUCT_API_HMAC_SECRET,
   PRODUCT_API_TIMEOUT_MS,
   PRODUCT_USER_HASH_SALT,
 } from './config';
@@ -13,6 +12,7 @@ export type LibraryProduct = {
   barcode: string;
   name: string;
   brand: string;
+  brandOwner: string;
   manufacturer: string;
   category?: PetCategory;
   kind?: 'staple' | 'snack';
@@ -64,7 +64,7 @@ async function signedHeaders(
   method: string,
   path: string,
   body: string,
-  secret = PRODUCT_API_HMAC_SECRET,
+  secret: string,
 ): Promise<Record<string, string>> {
   const timestamp = String(Date.now());
   const requestNonce = nonce();
@@ -103,13 +103,15 @@ export async function lookupProduct(
 ): Promise<ProductLookupResult> {
   const url = productEndpoint(settings, barcode);
   if (!url) return { status: 'disabled' };
+  const secret = (options.hmacSecret ?? settings.productApiSecret ?? '').trim();
+  if (!secret) return { status: 'disabled' };
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? PRODUCT_API_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const startedAt = performance.now();
   try {
-    const headers = await signedHeaders('GET', `${url.pathname}${url.search}`, '', options.hmacSecret);
+    const headers = await signedHeaders('GET', `${url.pathname}${url.search}`, '', secret);
     const response = await fetchImpl(url, { method: 'GET', headers, signal: controller.signal });
     if (response.status === 404) return { status: 'miss' };
     if (!response.ok) return { status: 'error', message: `查询库返回 ${response.status}` };
@@ -139,6 +141,7 @@ export function libraryOutcome(product: LibraryProduct, barcode: string): Recogn
     gtin: product.barcode || barcode,
     name: product.name,
     brand: product.brand || '',
+    brandOwner: product.brandOwner || '',
     manufacturer: product.manufacturer || '',
     ingredientsRaw: product.ingredientsRaw || '',
     ingredients: [],
@@ -155,6 +158,7 @@ export function libraryOutcome(product: LibraryProduct, barcode: string): Recogn
     confidence: {
       name: score,
       brand: score,
+      brandOwner: score,
       manufacturer: score,
       ingredientsRaw: score,
       shelfLifeText: score,
@@ -203,7 +207,8 @@ export async function contributeProduct(
   options: { fetchImpl?: typeof fetch; hmacSecret?: string } = {},
 ): Promise<boolean> {
   const base = settings.productApiUrl?.trim();
-  if (!base || !sku.gtin) return false;
+  const secret = (options.hmacSecret ?? settings.productApiSecret ?? '').trim();
+  if (!base || !secret || !sku.gtin) return false;
   let url: URL;
   try {
     url = new URL('/api/v1/contribute', base);
@@ -216,6 +221,7 @@ export async function contributeProduct(
     product: {
       name: sku.name,
       brand: sku.brand,
+      brandOwner: sku.brandOwner,
       manufacturer: sku.manufacturer,
       category: sku.category,
       kind: sku.kind,
@@ -231,7 +237,7 @@ export async function contributeProduct(
     },
   });
   try {
-    const headers = await signedHeaders('POST', `${url.pathname}${url.search}`, body, options.hmacSecret);
+    const headers = await signedHeaders('POST', `${url.pathname}${url.search}`, body, secret);
     const response = await (options.fetchImpl ?? fetch)(url, {
       method: 'POST',
       headers,

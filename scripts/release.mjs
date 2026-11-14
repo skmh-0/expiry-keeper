@@ -120,7 +120,7 @@ pkg.version = version;
 writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
 writeFileSync(
   join(root, 'src', 'version.ts'),
-  `/** 由 scripts/release.mjs 自动改写，请勿手工调整格式。 */\nexport const APP_VERSION = '${version}';\n`,
+  `/** 由 scripts/release.mjs 自动改写，请勿手工调整格式。 */\nexport const APP_VERSION = import.meta.env.VITE_APP_VERSION || '${version}';\n`,
   'utf8',
 );
 console.log(`版本号 → ${version}`);

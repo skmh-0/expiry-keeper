@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Check, Image as ImageIcon, Keyboard, ScanLine, Sparkles, X } from 'lucide-react';
+import { Camera, Check, Image as ImageIcon, Keyboard, PawPrint, ScanLine, Sparkles, X } from 'lucide-react';
 import type { PhotoRole, PhotoShot, RecognizeOutcome } from '../types';
 import { isEngineConfigured, recognize } from '../lib/engine';
 import { useStore } from '../lib/store';
@@ -7,7 +7,6 @@ import { captureNativePhoto, isNative } from '../lib/native';
 import { downscale, readAsDataUrl } from '../lib/image';
 import { isValidGtin, normalizeGtin } from '../lib/gtin';
 import { Notice, Segmented, TextInput } from '../components/ui';
-import { CatMascot } from '../components/Cat';
 import { libraryOutcome, lookupProduct } from '../lib/productApi';
 
 const PIPELINE_STEPS = ['查询商品库', '图像质量检测', '条码与背标解析', '规则校验 GTIN / SC / 保质期', '生成商品记录'];
@@ -50,9 +49,11 @@ export function ScanScreen({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const controlsRef = useRef<{ stop: () => void } | null>(null);
-  const rafRef = useRef<number | null>(null);
   const busyRef = useRef(false);
   const aliveRef = useRef(true);
+  const cameraRunRef = useRef(0);
+  const decodeRunRef = useRef(0);
+  const codeLockRef = useRef(false);
   const captureInputRef = useRef<HTMLInputElement | null>(null);
   const albumInputRef = useRef<HTMLInputElement | null>(null);
   /** 托盘同时用 state 和 ref：加图、删图、换标签都要立刻拿到最新值 */
@@ -74,10 +75,8 @@ export function ScanScreen({
 
   const stopCamera = useCallback(() => {
     aliveRef.current = false;
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
+    cameraRunRef.current += 1;
+    decodeRunRef.current += 1;
     try {
       controlsRef.current?.stop();
     } catch {
@@ -98,6 +97,7 @@ export function ScanScreen({
       const badGtin = Boolean(scanned) && !isValidGtin(scanned);
       // 扫到的码校验位就不对、又没拍背标：别让用户白等一遍解析
       if (badGtin && !taken.length) {
+        stopCamera();
         setMessage('条码校验位不通过，先带你进确认页手工核对');
         const outcome = await recognize({ settings, gtin: scanned, shots: [], makers });
         outcome.notices = [
@@ -136,6 +136,7 @@ export function ScanScreen({
           `[scan] 开始解析：${taken.length ? taken.map((shot) => ROLE_TEXT[shot.role]).join(' + ') : ''}${input.gtin ? ` 条码 ${input.gtin}` : ''}`,
         );
       }
+      stopCamera();
       const token = runTokenRef.current + 1;
       runTokenRef.current = token;
       busyRef.current = true;
@@ -169,6 +170,7 @@ export function ScanScreen({
       setStep(-1);
       busyRef.current = false;
       if (!outcome) {
+        stopCamera();
         setMessage(failure || '识别失败');
         return;
       }
@@ -183,14 +185,18 @@ export function ScanScreen({
   const cancelPipeline = useCallback(() => {
     runTokenRef.current += 1;
     busyRef.current = false;
+    stopCamera();
     setStep(-1);
     setMessage('已取消本次识别');
-  }, []);
+  }, [stopCamera]);
 
   const handleCode = useCallback(
     (code: string) => {
-      if (busyRef.current) return;
-      void runPipeline({ gtin: code });
+      if (busyRef.current || codeLockRef.current) return;
+      codeLockRef.current = true;
+      void runPipeline({ gtin: code }).finally(() => {
+        codeLockRef.current = false;
+      });
     },
     [runPipeline],
   );
@@ -198,51 +204,46 @@ export function ScanScreen({
   const startDecode = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    const Detector = (window as unknown as { BarcodeDetector?: new (options?: unknown) => { detect: (source: unknown) => Promise<{ rawValue: string }[]> } })
-      .BarcodeDetector;
-
-    if (typeof Detector === 'function') {
-      let detector: { detect: (source: unknown) => Promise<{ rawValue: string }[]> };
+    const token = decodeRunRef.current + 1;
+    decodeRunRef.current = token;
+    const fail = () => {
+      if (decodeRunRef.current !== token) return;
+      decodeRunRef.current += 1;
+      aliveRef.current = false;
       try {
-        detector = new Detector({
-          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code', 'data_matrix'],
-        });
+        controlsRef.current?.stop();
       } catch {
-        detector = new Detector();
+        // 解码器可能尚未启动
       }
-      const tick = async () => {
-        if (!aliveRef.current) return;
-        try {
-          const codes = await detector.detect(video);
-          const first = codes.find((code) => code.rawValue);
-          if (first) {
-            handleCode(first.rawValue);
-            return;
-          }
-        } catch {
-          // 单帧识别失败继续下一帧
-        }
-        if (aliveRef.current) rafRef.current = requestAnimationFrame(() => void tick());
-      };
-      void tick();
-      return;
-    }
-
+      controlsRef.current = null;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
+      setMessage('条码解码器启动失败，可改用拍背标或手动输入');
+      setState('error');
+    };
     void import('@zxing/browser').then(async ({ BrowserMultiFormatReader }) => {
+      if (!aliveRef.current || decodeRunRef.current !== token) return;
       const reader = new BrowserMultiFormatReader();
       try {
         const controls = await reader.decodeFromVideoElement(video, (result) => {
           if (result) handleCode(result.getText());
         });
+        if (!aliveRef.current || decodeRunRef.current !== token) {
+          controls.stop();
+          return;
+        }
         controlsRef.current = controls;
       } catch {
-        setMessage('条码解码器启动失败，可改用拍背标或手动输入');
-        setState('error');
+        fail();
       }
-    });
+    }).catch(fail);
   }, [handleCode]);
 
   const startCamera = useCallback(async () => {
+    if (state === 'starting' || state === 'scanning') return;
+    const token = cameraRunRef.current + 1;
+    cameraRunRef.current = token;
     setMessage('');
     if (!navigator.mediaDevices?.getUserMedia) {
       setState('error');
@@ -255,27 +256,46 @@ export function ScanScreen({
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
+      if (cameraRunRef.current !== token) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       aliveRef.current = true;
       const video = videoRef.current;
-      if (!video) return;
+      if (!video) throw new Error('video element missing');
       video.srcObject = stream;
       await video.play();
+      if (cameraRunRef.current !== token) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       setState('scanning');
       startDecode();
     } catch (error) {
+      if (cameraRunRef.current !== token) return;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      if (videoRef.current) videoRef.current.srcObject = null;
       setState('error');
       const name = error instanceof Error ? error.name : '';
-      if (name === 'NotAllowedError') setMessage('摄像头权限被拒绝，可在浏览器地址栏重新授权。');
+      if (name === 'NotAllowedError') {
+        setMessage(
+          isNative()
+            ? '摄像头权限被拒绝，请到系统设置中允许本应用使用相机。'
+            : '摄像头权限被拒绝，可在浏览器地址栏重新授权。',
+        );
+      }
       else if (name === 'NotFoundError') setMessage('没有找到可用摄像头，可改用拍背标或手动输入。');
       else setMessage('无法启动摄像头，可改用拍背标或手动输入。');
     }
-  }, [startDecode]);
+  }, [startDecode, state]);
 
   useEffect(() => {
     return () => {
       aliveRef.current = false;
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      cameraRunRef.current += 1;
+      decodeRunRef.current += 1;
       try {
         controlsRef.current?.stop();
       } catch {
@@ -341,7 +361,7 @@ export function ScanScreen({
         <video ref={videoRef} className="scan-video" playsInline muted />
         {state !== 'scanning' ? (
           <div className="scan-placeholder">
-            <CatMascot size={54} />
+            <PawPrint size={54} strokeWidth={1.6} />
             <p>对准包装上的商品条码</p>
             <p className="muted small">整张平铺、避开反光；配料表和喷码各拍一张特写最准</p>
           </div>
@@ -362,9 +382,14 @@ export function ScanScreen({
         <Notice level="warn">未填写 DeepSeek API Key：扫码只记录条码，商品信息需手工填写。</Notice>
       )}
 
-      <button type="button" className="btn btn-primary btn-block" onClick={() => (state === 'scanning' ? stopCamera() : void startCamera())}>
+      <button
+        type="button"
+        className="btn btn-primary btn-block"
+        disabled={state === 'starting'}
+        onClick={() => (state === 'scanning' ? stopCamera() : void startCamera())}
+      >
         <ScanLine size={18} />
-        {state === 'scanning' ? '停止扫码' : '开始实时扫码'}
+        {state === 'scanning' ? '停止扫码' : state === 'starting' ? '正在启动摄像头…' : '开始实时扫码'}
       </button>
 
       <div className="card">

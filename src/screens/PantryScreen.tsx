@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PawPrint, Search } from 'lucide-react';
 import type { ExpiryStatus } from '../types';
-import { CatMascot } from '../components/Cat';
 import { BrandTile } from '../components/BrandTile';
 import { useStore } from '../lib/store';
 import { diffDays, formatCn, remainingText, statusOf, statusThresholds, todayIso } from '../lib/shelfLife';
@@ -67,7 +66,8 @@ export function PantryScreen({ onOpenItem, onScan }: { onOpenItem: (id: string) 
         if (!keyword) return true;
         const categoryText = `${categoryLabel(sku)} ${kindLabel(sku)}`.trim();
         const haystack =
-          `${sku?.name ?? ''} ${sku?.brand ?? ''} ${categoryText} ${item.gtin} ${item.location}`.toLowerCase();
+          `${sku?.name ?? ''} ${sku?.brand ?? ''} ${sku?.brandOwner ?? ''} ${categoryText} ${item.gtin} ${item.location}`
+            .toLowerCase();
         return haystack.includes(keyword);
       })
       .sort((a, b) => {
@@ -192,7 +192,7 @@ export function PantryScreen({ onOpenItem, onScan }: { onOpenItem: (id: string) 
 
       {rows.length === 0 ? (
         <EmptyState
-          icon={<CatMascot size={56} />}
+          icon={<PawPrint size={56} strokeWidth={1.5} />}
           title="这里还没有记录"
           hint="扫一次条码，或者拍一张背标，剩下的交给它"
           action={

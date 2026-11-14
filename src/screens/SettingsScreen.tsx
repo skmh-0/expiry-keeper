@@ -24,10 +24,14 @@ import {
   sendTestNotification,
 } from '../lib/native';
 import { APP_VERSION } from '../version';
-import { DEEPSEEK_BASE_URL, DEEPSEEK_VISION_MODEL, DEFAULT_UPDATE_SOURCE } from '../lib/config';
+import {
+  DEEPSEEK_BASE_URL,
+  DEEPSEEK_VISION_MODEL,
+  DEFAULT_PRODUCT_API_URL,
+  DEFAULT_UPDATE_SOURCE,
+} from '../lib/config';
 import { Chip, Field, Notice, Segmented, Stepper, TextInput, Toggle } from '../components/ui';
 import type { ReminderKind, ReminderSettings, VerifyMode } from '../types';
-import { CatMark } from '../components/Cat';
 import { MakerSheet } from '../components/MakerSheet';
 import { clearState, writeMirror, writeState } from '../lib/storage';
 import { writeSecureKey } from '../lib/secureKey';
@@ -51,7 +55,6 @@ export function SettingsScreen({ updater, onOpenLibrary }: { updater: Updater; o
   } = useStore();
   const importRef = useRef<HTMLInputElement | null>(null);
   const keyRef = useRef<HTMLInputElement | null>(null);
-  const productApiRef = useRef<HTMLInputElement | null>(null);
   const configured = isEngineConfigured(settings);
   const [draftKey, setDraftKey] = useState(settings.apiKey);
   const [verify, setVerify] = useState<{ busy: boolean; message?: { text: string; tone: 'ok' | 'warn' | 'error' } }>({
@@ -193,7 +196,7 @@ export function SettingsScreen({ updater, onOpenLibrary }: { updater: Updater; o
         schema: 6,
         skus,
         items: exportedItems,
-        settings: { ...settings, apiKey: '' },
+        settings: { ...settings, apiKey: '', productApiSecret: '' },
         makers,
         pets: exportedPets,
         feedings,
@@ -220,7 +223,7 @@ export function SettingsScreen({ updater, onOpenLibrary }: { updater: Updater; o
       const parsed = JSON.parse(text) as {
         skus?: unknown;
         items?: unknown;
-        settings?: { apiKey?: string } & Record<string, unknown>;
+        settings?: { apiKey?: string; productApiSecret?: string } & Record<string, unknown>;
         makers?: unknown;
         pets?: unknown;
         feedings?: unknown;
@@ -228,8 +231,15 @@ export function SettingsScreen({ updater, onOpenLibrary }: { updater: Updater; o
         dewormings?: unknown;
       };
       const legacyKey = typeof parsed.settings?.apiKey === 'string' ? parsed.settings.apiKey.trim() : '';
-      if (legacyKey) await writeSecureKey(legacyKey);
-      if (parsed.settings) parsed.settings = { ...parsed.settings, apiKey: '' };
+      const legacyProductSecret =
+        typeof parsed.settings?.productApiSecret === 'string'
+          ? parsed.settings.productApiSecret.trim()
+          : '';
+      if (legacyKey) await writeSecureKey(legacyKey, 'apiKey');
+      if (legacyProductSecret) await writeSecureKey(legacyProductSecret, 'productHmac');
+      if (parsed.settings) {
+        parsed.settings = { ...parsed.settings, apiKey: '', productApiSecret: '' };
+      }
       // 数据以 IndexedDB 为准：备份直接写进数据库，再重启界面
       const ok = await writeState(parsed);
       if (!ok) {
@@ -314,27 +324,37 @@ export function SettingsScreen({ updater, onOpenLibrary }: { updater: Updater; o
             <Cloud size={15} />
             扫码优先查库
           </span>
-          <Chip tone={settings.productApiUrl?.trim() ? 'ok' : 'warn'}>
-            {settings.productApiUrl?.trim() ? '已配置' : '未配置'}
+          <Chip tone={settings.productApiUrl?.trim() && settings.productApiSecret.trim() ? 'ok' : 'warn'}>
+            {settings.productApiUrl?.trim() && settings.productApiSecret.trim() ? '已配置' : '未配置'}
           </Chip>
         </div>
         <Field
           label="查询库地址"
-          hint="填写电脑的局域网地址加端口，例如 http://电脑地址:5280；留空则扫码后直接使用 AI。命中约 0.5 秒填充，2 秒超时自动降级。"
+          hint="填写你部署的商品查询库地址；留空或未配置签名密钥时跳过查库。"
         >
           <TextInput
-            ref={productApiRef}
             value={settings.productApiUrl ?? ''}
-            placeholder="http://电脑地址:5280"
+            placeholder={DEFAULT_PRODUCT_API_URL || 'http://服务器地址:5280'}
             inputMode="url"
             onChange={(event) => updateSettings({ productApiUrl: event.target.value.trim() })}
-            onBlur={() =>
-              updateSettings({ productApiUrl: productApiRef.current?.value.trim() ?? '' })
-            }
+            onBlur={(event) => updateSettings({ productApiUrl: event.currentTarget.value.trim() })}
+          />
+        </Field>
+        <Field
+          label="签名密钥"
+          hint="必须与服务端 HMAC_SECRET 一致；只保存在本机 Keystore，不进入 APK、快照或备份。"
+        >
+          <TextInput
+            type="password"
+            value={settings.productApiSecret}
+            placeholder="输入 64 位 HMAC 密钥"
+            autoComplete="off"
+            onChange={(event) => updateSettings({ productApiSecret: event.target.value.trim() })}
+            onBlur={(event) => updateSettings({ productApiSecret: event.currentTarget.value.trim() })}
           />
         </Field>
         <Notice level="warn">
-          请求使用 HMAC 签名和每分钟 60 次限流。后台只接收纯文本商品字段，不接收照片和 DeepSeek API Key。
+          请求使用 HMAC 签名和每分钟 60 次限流。后台只接收纯文本商品字段，不接收照片、DeepSeek API Key 或签名密钥。
         </Notice>
       </div>
 
@@ -483,7 +503,7 @@ export function SettingsScreen({ updater, onOpenLibrary }: { updater: Updater; o
           label="更新源"
           hint={
             DEFAULT_UPDATE_SOURCE
-              ? `内置默认地址是 ${DEFAULT_UPDATE_SOURCE}；电脑地址变了就点「用默认」换回来`
+              ? `内置默认地址是 ${DEFAULT_UPDATE_SOURCE}；服务器地址变了就点「用默认」换回来`
               : '留空 = 自动扫描同一局域网里 5276 端口的更新服务；也可以手动填电脑地址'
           }
         >
@@ -501,7 +521,7 @@ export function SettingsScreen({ updater, onOpenLibrary }: { updater: Updater; o
                 void updater.check(true);
               }}
             >
-              自动发现
+              {DEFAULT_UPDATE_SOURCE ? '用默认' : '自动发现'}
             </button>
           </div>
         </Field>
@@ -604,9 +624,7 @@ export function SettingsScreen({ updater, onOpenLibrary }: { updater: Updater; o
       <h3 className="section-title">关于</h3>
       <div className="card">
         <div className="thumb-row">
-          <span className="thumb thumb-empty">
-            <CatMark size={26} />
-          </span>
+          <img className="thumb" src="/icon-round.png" alt="效期管家应用图标" />
           <div className="thumb-text">
             <p className="block-label">效期管家</p>
             <p className="muted tiny">给猫猫囤粮的人做的保质期台账</p>

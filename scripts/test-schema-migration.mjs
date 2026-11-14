@@ -67,7 +67,10 @@ const state = await readSeededState(page);
 const sku = state.skus[0];
 const item = state.items[0];
 const pet = state.pets[0];
-check('旧 SKU 缺失字符串字段补齐', sku.name === '' && sku.brand === '' && sku.manufacturer === '');
+check(
+  '旧 SKU 缺失字符串字段补齐',
+  sku.name === '' && sku.brand === '' && sku.brandOwner === '' && sku.manufacturer === '',
+);
 check('旧 SKU 缺失数组字段补齐', Array.isArray(sku.ingredients) && Array.isArray(sku.additives) && Array.isArray(sku.allergens));
 check('旧 SKU 缺失对象字段补齐', sku.confidence && typeof sku.confidence === 'object');
 check('旧分类 other 迁移为用品', sku.category === 'supplies', sku.category);
@@ -79,7 +82,7 @@ check('旧宠物体重历史补齐为空数组', Array.isArray(pet.weightHistory
 check('旧投喂日期补齐为今天', /^\d{4}-\d{2}-\d{2}$/.test(state.feedings[0].date), state.feedings[0].date);
 check('坏疫苗/驱虫记录不会进入正式档案', state.vaccinations.length === 0 && state.dewormings.length === 0);
 check('旧设置补齐三类提醒', Boolean(state.settings.reminders && 'expiryEnabled' in state.settings.reminders));
-check('迁移后 schema 升级到 6', state.schema === 6, state.schema);
+check('迁移后 schema 升级到 7', state.schema === 7, state.schema);
 
 await page.getByRole('button', { name: '库存', exact: true }).click();
 await page.waitForTimeout(350);

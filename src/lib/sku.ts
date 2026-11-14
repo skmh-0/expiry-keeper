@@ -33,6 +33,7 @@ export function createEmptySku(gtin = ''): Sku {
     gtin,
     name: '',
     brand: '',
+    brandOwner: '',
     manufacturer: '',
     ingredientsRaw: '',
     ingredients: [],

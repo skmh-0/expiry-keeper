@@ -1,8 +1,10 @@
 /** 2.2：商品库超过 2 秒时自动降级到 AI，不阻断扫码流程。 */
 import { chromium } from 'playwright';
+import { existsSync } from 'node:fs';
 import { seedState } from './seed-state.mjs';
 
 const url = process.env.URL ?? 'http://127.0.0.1:5273';
+const sampleImage = existsSync('shots/label-1400.jpg') ? 'shots/label-1400.jpg' : 'public/icon-round.png';
 const browser = await chromium.launch({ channel: 'msedge' });
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 }, locale: 'zh-CN' })).newPage();
 let failed = 0;
@@ -60,6 +62,7 @@ await seedState(page, {
     remindDays: 7,
     verifyMode: 'off',
     productApiUrl: url,
+    productApiSecret: 'test-product-hmac-secret',
     reminders: {
       expiryEnabled: false,
       vaccineEnabled: false,
@@ -70,7 +73,7 @@ await seedState(page, {
 });
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(400);
-await page.locator('input[type=file]').nth(1).setInputFiles('shots/label-1400.jpg');
+await page.locator('input[type=file]').nth(1).setInputFiles(sampleImage);
 await page.waitForTimeout(300);
 const started = Date.now();
 await page.getByRole('button', { name: /识别这 1 张/ }).click();

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const androidDir = join(root, 'android');
+const openSource = process.argv.includes('--open-source');
 
 const javaHome = process.env.JAVA_HOME || 'D:\\Android-Build\\jdk-17.0.20.1+1';
 const sdkDir = process.env.ANDROID_HOME || 'D:\\Android-Build\\sdk';
@@ -22,12 +23,15 @@ if (!existsSync(join(androidDir, 'app', 'build.gradle'))) {
 
 const useLocalGradle = existsSync(gradleBin);
 const command = useLocalGradle ? gradleBin : 'gradlew.bat';
-const args = ['-p', androidDir, 'assembleRelease', '--console=plain'];
+const args = ['-p', androidDir];
+if (openSource) args.push('-PopenSourceBuild');
+args.push('assembleRelease', '--console=plain');
 
 console.log(`使用 ${useLocalGradle ? gradleBin : 'gradle wrapper'}`);
 console.log(`JAVA_HOME=${javaHome}`);
 console.log(`ANDROID_HOME=${sdkDir}`);
 console.log(`GRADLE_USER_HOME=${gradleUserHome}`);
+console.log(`BUILD_VARIANT=${openSource ? 'open-source' : 'private'}`);
 
 const result = spawnSync(command, args, {
   cwd: androidDir,

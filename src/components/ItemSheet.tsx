@@ -82,7 +82,11 @@ export function ItemSheet({
   return (
     <Sheet
       title={sku?.name || '未命名商品'}
-      subtitle={sku ? `${sku.brand} · ${sku.manufacturer}` : `${item.gtin || '无条码'} · 还没有商品档案`}
+      subtitle={
+        sku
+          ? `${sku.brand} · ${[sku.brandOwner, sku.manufacturer].filter(Boolean).join(' / ')}`
+          : `${item.gtin || '无条码'} · 还没有商品档案`
+      }
       onClose={onClose}
       footer={
         <div className="foot-actions">

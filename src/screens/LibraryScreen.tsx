@@ -44,7 +44,9 @@ export function LibraryScreen({ onOpenSku, onCreate }: { onOpenSku: (sku: Sku) =
       }))
       .filter(({ sku }) => {
         if (!keyword) return true;
-        return `${sku.name} ${sku.brand} ${sku.manufacturer} ${sku.gtin}`.toLowerCase().includes(keyword);
+        return `${sku.name} ${sku.brand} ${sku.brandOwner} ${sku.manufacturer} ${sku.gtin}`
+          .toLowerCase()
+          .includes(keyword);
       })
       .sort((a, b) =>
         sort === 'completeness' ? b.completeness - a.completeness : b.sku.updatedAt - a.sku.updatedAt,
@@ -99,7 +101,9 @@ export function LibraryScreen({ onOpenSku, onCreate }: { onOpenSku: (sku: Sku) =
                 <BrandTile label={sku.iconLabel} brand={sku.brand} name={sku.name} />
                 <span className="li-main">
                   <span className="li-title">{sku.name || '未命名商品'}</span>
-                  <span className="muted small">{sku.brand} · {sku.manufacturer}</span>
+                  <span className="muted small">
+                    {sku.brand} · {[sku.brandOwner, sku.manufacturer].filter(Boolean).join(' / ')}
+                  </span>
                   <span className="chips chips-tight">
                     <Chip tone={sku.source === 'api' ? 'ok' : 'neutral'}>
                       {sku.source === 'api' ? '视觉模型' : '手工录入'}

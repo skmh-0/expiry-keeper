@@ -128,6 +128,7 @@ const EXTRACTION_PROMPT = `你是包装标签信息抽取器。标签可能来�
 - 多张照片请合并信息，冲突时以更清楚的那张为准。
 - 生产日期以包装上的喷码/压印数字为准，可能单独拍在特写里，逐位核对；看不清就留空，宁可留空也不要猜。
 - brand 只写品牌名（例如「麦富迪」），不要把公司全称当作品牌。
+- brandOwner 只写品牌商 / 品牌方 / 委托方 / 出品方 / 经销商 / 商标持有人的公司全称，不要写真正生产的工厂。
 - manufacturer 只写真正生产的那家工厂：取包装上「生产商 / 生产企业 / 制造商 / 受托方 / 受委托方 / 代工方 / 加工厂」后面的公司名称。品牌方、委托方、出品方、经销商、商标持有人都不是生产商，不要填进 manufacturer；同一处既有委托方又有受托方时填受托方。带地址时只写公司名，不要写地址。
 - 配料原文照抄。宠物食品把「原料组成」和「添加剂组成」两段都写进 ingredientsRaw。
 - scCode 放生产许可证编号：食品是 SC 加 14 位数字，宠物食品是「鲁饲证(2023)02713」这类饲料生产许可证编号，原样写。
@@ -140,6 +141,7 @@ const EXTRACTION_PROMPT = `你是包装标签信息抽取器。标签可能来�
   "gtin": "条码数字，没有就留空",
   "name": "产品名称（含系列与口味）",
   "brand": "品牌",
+  "brandOwner": "品牌商 / 委托方 / 出品方公司全称（不是生产工厂）",
   "category": "宠物食品填 干粮 或 湿粮；其他商品留空",
   "kind": "宠物食品填 主食 或 零食（全价/主粮/主食罐算主食，奖励/训练用算零食）；其他商品留空",
   "manufacturer": "实际生产工厂全称（不是品牌方 / 委托方 / 经销商；不带地址）",
@@ -168,7 +170,7 @@ const EXTRACTION_PROMPT = `你是包装标签信息抽取器。标签可能来�
     "date": { "x": 0, "y": 0, "w": 0, "h": 0 }
   },
   "confidence": {
-    "name": 0.9, "brand": 0.9, "manufacturer": 0.9, "scCode": 0.9, "standardCode": 0.9,
+    "name": 0.9, "brand": 0.9, "brandOwner": 0.9, "manufacturer": 0.9, "scCode": 0.9, "standardCode": 0.9,
     "ingredientsRaw": 0.9, "storage": 0.9, "shelfLifeText": 0.9, "packageGrams": 0.9, "productionDate": 0.9, "expiryDate": 0.9
   }
 }
@@ -393,6 +395,21 @@ function normalizeManufacturer(raw: string): string {
     .trim();
 }
 
+/** 品牌商/委托方与生产工厂严格分开，避免把品牌公司写进 manufacturer。 */
+function normalizeBrandOwner(raw: string): string {
+  const labeled = raw.match(
+    /(?:品牌商|品牌方|委托方|出品方|经销商|商标持有人)\s*[:：]\s*([^；;，,\n]{2,80})/,
+  )?.[1];
+  return (labeled ?? raw)
+    .replace(/[（(][^)）]{0,40}(?:省|市|区|县|镇|乡|村|路|街|号|幢|栋|室|工业园|开发区)[^)）]{0,40}[)）]\s*$/, '')
+    .replace(
+      /^(?:品牌商|品牌方|委托方|出品方|经销商|商标持有人)\s*[:：]?\s*/,
+      '',
+    )
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 /**
  * 模型给的 confidence 键名不固定（name / shelfLife / ingredients 都见过），
  * 统一成字段名，否则界面上的「待核对」标记会失效。
@@ -400,6 +417,9 @@ function normalizeManufacturer(raw: string): string {
 const CONFIDENCE_ALIAS: Record<string, string> = {
   name: 'name',
   brand: 'brand',
+  brandowner: 'brandOwner',
+  company: 'brandOwner',
+  principal: 'brandOwner',
   manufacturer: 'manufacturer',
   maker: 'manufacturer',
   factory: 'manufacturer',
@@ -479,6 +499,7 @@ function skuFromModel(json: Record<string, unknown>, fallbackGtin: string): Sku 
     kind,
     name: text('name'),
     brand: text('brand'),
+    brandOwner: normalizeBrandOwner(text('brandOwner') || text('company')),
     manufacturer: normalizeManufacturer(text('manufacturer')),
     scCode: normalizeScCode(text('scCode')),
     standardCode: text('standardCode'),
@@ -528,6 +549,7 @@ export function isEngineConfigured(settings: Settings): boolean {
 const FIELD_LABEL: Record<string, string> = {
   name: '商品名称',
   brand: '品牌',
+  brandOwner: '品牌商',
   manufacturer: '生产厂家',
   scCode: '生产许可证编号',
   standardCode: '产品标准代号',
@@ -748,6 +770,7 @@ function pickTargets(sku: Sku, production: string, expiry: string): string[] {
   const values: Record<string, string> = {
     name: sku.name,
     brand: sku.brand,
+    brandOwner: sku.brandOwner,
     manufacturer: sku.manufacturer,
     scCode: sku.scCode ?? '',
     standardCode: sku.standardCode ?? '',
@@ -762,7 +785,13 @@ function pickTargets(sku: Sku, production: string, expiry: string): string[] {
     const score = confidence[key];
     // 净含量是新增的非必填字段：第一遍完全没读到又没给 confidence 时，
     // 不让所有旧商品都因此多跑一遍复验；模型明确标低分时仍会复验。
-    if (key === 'packageGrams' && score === undefined && !values[key].trim()) return false;
+    if (
+      (key === 'packageGrams' || key === 'brandOwner') &&
+      score === undefined &&
+      !values[key].trim()
+    ) {
+      return false;
+    }
     // 模型没给这一项的把握，也当成不可信处理
     if (score === undefined || score < LOW_CONFIDENCE) return true;
     if (REQUIRED_FIELDS.includes(key) && !values[key].trim()) return true;

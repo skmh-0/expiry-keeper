@@ -5,6 +5,8 @@ const CLEAN_PROMPT = `你是宠物商品资料清洗器。输入是一条用户�
 严格要求：
 - 不猜测、不补全包装上没有提供的信息。
 - 无法确认的字符串写空字符串，无法确认的数字、分类、用途写 null。
+- brandOwner 只写品牌商 / 品牌方 / 委托方 / 出品方 / 经销商，不要把品牌商当成生产厂家。
+- manufacturer 只写真正生产的工厂，不得把品牌商、委托方或经销商填入。
 - category 只能是 dry、wet、freeze_dried、fresh_raw、medicine、supplies 之一，否则 null。
 - kind 只能是 staple 或 snack，否则 null。
 - shelfLifeMonths 只在包装明确写“12个月/1年”这类信息时填写整数。
@@ -16,6 +18,7 @@ const CLEAN_PROMPT = `你是宠物商品资料清洗器。输入是一条用户�
   "barcode": "8-14 位条码",
   "name": "商品名",
   "brand": "品牌",
+  "brandOwner": "品牌商/委托方公司全称",
   "manufacturer": "真实生产厂家",
   "category": "dry|wet|freeze_dried|fresh_raw|medicine|supplies|null",
   "kind": "staple|snack|null",

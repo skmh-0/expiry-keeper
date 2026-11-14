@@ -1,7 +1,7 @@
 {
   "name": "expiry-keeper",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.1",
   "type": "module",
   "description": "为养猫家庭设计的商品效期与库存管理 App",
   "scripts": {
@@ -15,7 +15,8 @@
     "server": "node server/index.mjs",
     "test:server": "node --test server/test/*.test.mjs",
     "android:sync": "node --require ./scripts/patch-net-use.cjs ./node_modules/vite/bin/vite.js build && npx cap sync android",
-    "android:apk": "node scripts/build-apk.mjs"
+    "android:apk": "node scripts/build-apk.mjs",
+    "android:apk:open": "node scripts/build-apk.mjs --open-source"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.2",

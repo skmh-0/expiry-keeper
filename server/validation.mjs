@@ -5,6 +5,7 @@ export const LIMITS = {
   barcode: 14,
   name: 200,
   brand: 80,
+  brandOwner: 160,
   manufacturer: 160,
   ingredientsRaw: 8000,
   storage: 500,
@@ -65,6 +66,7 @@ export function sanitizeCleanedProduct(candidate, fallbackBarcode = '') {
     barcode,
     name,
     brand: text(candidate.brand, LIMITS.brand),
+    brandOwner: text(candidate.brandOwner, LIMITS.brandOwner),
     manufacturer: text(candidate.manufacturer, LIMITS.manufacturer),
     category,
     kind,
@@ -87,6 +89,9 @@ export function validateContributionBody(body) {
   if (!text(product.name, LIMITS.name)) return '商品名称不能为空';
   if (text(product.name, LIMITS.name + 1).length > LIMITS.name) return `商品名称不能超过 ${LIMITS.name} 字`;
   if (text(product.brand, LIMITS.brand + 1).length > LIMITS.brand) return `品牌不能超过 ${LIMITS.brand} 字`;
+  if (text(product.brandOwner, LIMITS.brandOwner + 1).length > LIMITS.brandOwner) {
+    return `品牌商不能超过 ${LIMITS.brandOwner} 字`;
+  }
   if (
     text(product.manufacturer, LIMITS.manufacturer + 1).length > LIMITS.manufacturer
   ) {

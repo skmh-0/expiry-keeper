@@ -40,6 +40,7 @@ export function SkuSheet({
       gtin: normalizeGtin(read('gtin') ?? live.gtin),
       name: text('name', live.name),
       brand: text('brand', live.brand),
+      brandOwner: text('brandOwner', live.brandOwner),
       iconLabel: text('iconLabel', live.iconLabel ?? '') || undefined,
       manufacturer: text('manufacturer', live.manufacturer),
       scCode: normalizeScCode(read('scCode') ?? live.scCode),
@@ -107,6 +108,14 @@ export function SkuSheet({
       </Field>
       <Field label="品牌">
         <TextInput name="brand" value={draft.brand} onChange={(event) => patch({ brand: event.target.value })} />
+      </Field>
+      <Field label="品牌商 / 委托方" hint="品牌方、委托方、出品方或经销商；不是实际生产工厂">
+        <TextInput
+          name="brandOwner"
+          value={draft.brandOwner}
+          placeholder="例如 某某品牌管理有限公司"
+          onChange={(event) => patch({ brandOwner: event.target.value })}
+        />
       </Field>
       <Field label="图标文字" hint="列表图标上显示的字，最多 4 个；留空就用品牌名">
         <TextInput

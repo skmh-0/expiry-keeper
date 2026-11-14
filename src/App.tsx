@@ -50,6 +50,7 @@ function mergeWithArchive(fresh: Sku, archived: Sku): Sku {
   const keys = [
     'name',
     'brand',
+    'brandOwner',
     'manufacturer',
     'scCode',
     'standardCode',
@@ -75,6 +76,7 @@ function mergeWithArchive(fresh: Sku, archived: Sku): Sku {
     // 模型答「其他」时信息量不如档案里的干湿分类，这种情况仍用档案
     category: fresh.category && fresh.category !== 'other' ? fresh.category : archived.category ?? fresh.category,
     kind: fresh.kind ?? archived.kind,
+    brandOwner: fromArchive('brandOwner'),
     manufacturer: fromArchive('manufacturer'),
     scCode: fromArchive('scCode'),
     standardCode: fromArchive('standardCode'),
@@ -287,7 +289,9 @@ function AppShell() {
       }
       const existing = skuOf(sku.gtin);
       // 空档案不落库，也不要用空字段覆盖已有档案
-      const hasContent = Boolean(sku.name.trim() || sku.manufacturer.trim() || sku.ingredientsRaw.trim());
+      const hasContent = Boolean(
+        sku.name.trim() || sku.brandOwner.trim() || sku.manufacturer.trim() || sku.ingredientsRaw.trim(),
+      );
       if (hasContent) {
         const next: Sku = existing
           ? {
@@ -362,7 +366,7 @@ function AppShell() {
       <header className="app-header">
         <div className="brand">
           <span className="brand-mark">
-            <img src="/icon-round.png" alt="" />
+            <PawPrint size={22} strokeWidth={1.7} />
           </span>
           <div>
             <h1>效期管家</h1>

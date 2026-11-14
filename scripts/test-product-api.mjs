@@ -68,6 +68,7 @@ await seedState(page, {
     remindDays: 7,
     verifyMode: 'off',
     productApiUrl: url,
+    productApiSecret: 'test-product-hmac-secret',
     reminders: {
       expiryEnabled: false,
       vaccineEnabled: false,
@@ -101,12 +102,12 @@ const unit = await page.evaluate(async ({ apiKey }) => {
     );
   };
   const hit = await api.lookupProduct(
-    { apiKey, remindEnabled: false, remindDays: 7, productApiUrl: 'http://library.test' },
+    { apiKey, remindEnabled: false, remindDays: 7, productApiUrl: 'http://library.test', productApiSecret: 'test-secret' },
     '6901234567892',
     { fetchImpl, timeoutMs: 2_000, hmacSecret: 'test-secret' },
   );
   const timeout = await api.lookupProduct(
-    { apiKey, remindEnabled: false, remindDays: 7, productApiUrl: 'http://library.test' },
+    { apiKey, remindEnabled: false, remindDays: 7, productApiUrl: 'http://library.test', productApiSecret: 'test-secret' },
     '6901234567892',
     {
       timeoutMs: 30,

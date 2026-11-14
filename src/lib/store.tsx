@@ -16,6 +16,7 @@ import type {
 import { refreshSku } from './sku';
 import { expiryFrom, isValidIso, parseShelfLife, shiftDays, todayIso } from './shelfLife';
 import { DEFAULT_MAKERS } from './manufacturers';
+import { DEFAULT_PRODUCT_API_URL } from './config';
 import { makeInternalGtin } from './gtin';
 import { clearSecureKey, readSecureKey, writeSecureKey } from './secureKey';
 import {
@@ -32,8 +33,9 @@ import {
 /**
  * 2：不再内置演示商品，读取旧数据时清掉早期写入的示例内容。
  * 3：到期日规则改为「生产日期 + 保质期 − 1 天」，把按旧规则算出来的到期日往前挪一天。
+ * 7：商品档案区分品牌商与生产厂家。
  */
-const SCHEMA = 6;
+const SCHEMA = 7;
 
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
@@ -47,7 +49,8 @@ export const DEFAULT_SETTINGS: Settings = {
     dewormEnabled: true,
     enabledAt: {},
   },
-  productApiUrl: '',
+  productApiUrl: DEFAULT_PRODUCT_API_URL,
+  productApiSecret: '',
 };
 
 export type Snapshot = {
@@ -126,7 +129,12 @@ function readSettings(raw: Partial<Settings> | undefined): Settings {
         : undefined,
     verifyMode: mode === 'always' || mode === 'off' || mode === 'auto' ? mode : 'always',
     reminders,
-    productApiUrl: typeof raw?.productApiUrl === 'string' ? raw.productApiUrl.trim().slice(0, 500) : '',
+    productApiUrl:
+      typeof raw?.productApiUrl === 'string'
+        ? raw.productApiUrl.trim().slice(0, 500)
+        : DEFAULT_PRODUCT_API_URL,
+    productApiSecret:
+      typeof raw?.productApiSecret === 'string' ? raw.productApiSecret.trim().slice(0, 512) : '',
   };
 }
 
@@ -184,6 +192,7 @@ function normalizeSnapshot(parsed: Partial<Snapshot> | undefined): Snapshot {
           gtin: textOf(clean.gtin),
           name: textOf(clean.name),
           brand: textOf(clean.brand),
+          brandOwner: textOf(clean.brandOwner),
           manufacturer: textOf(clean.manufacturer),
           scCode: textOf(clean.scCode) || undefined,
           standardCode: textOf(clean.standardCode) || undefined,
@@ -443,7 +452,10 @@ function loadMirrorSnapshot(): Snapshot {
 
 /** 写镜像前把照片本体摘掉：localStorage 只有 5MB，照片留在数据库里 */
 function mirrorCopy(snapshot: Snapshot): Snapshot {
-  const withoutKey: Snapshot = { ...snapshot, settings: { ...snapshot.settings, apiKey: '' } };
+  const withoutKey: Snapshot = {
+    ...snapshot,
+    settings: { ...snapshot.settings, apiKey: '', productApiSecret: '' },
+  };
   if (!withoutKey.items.some((item) => item.photo)) return withoutKey;
   return {
     ...withoutKey,
@@ -458,7 +470,7 @@ function mirrorCopy(snapshot: Snapshot): Snapshot {
 
 /** 落盘版本绝不带 API Key：Key 只在内存和 Android Keystore 里 */
 function withoutSecret(snapshot: Snapshot): Snapshot {
-  return { ...snapshot, settings: { ...snapshot.settings, apiKey: '' } };
+  return { ...snapshot, settings: { ...snapshot.settings, apiKey: '', productApiSecret: '' } };
 }
 
 export type StoreValue = {
@@ -519,21 +531,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // 镜像里的记录比数据库多，说明数据库落后了（老版本只写了 localStorage），以镜像为准
         const mirrorIsRicher = mirrored.items.length > (fromDb?.items.length ?? 0);
         // 老版本可能把明文 Key 只留在镜像里：这种也要优先用镜像，确保不漏迁移
-        const mirrorHasLegacyKey = Boolean(mirrored.settings.apiKey.trim() && !fromDb?.settings.apiKey.trim());
+        const mirrorHasLegacyKey = Boolean(
+          (mirrored.settings.apiKey.trim() && !fromDb?.settings.apiKey.trim()) ||
+            (mirrored.settings.productApiSecret.trim() && !fromDb?.settings.productApiSecret.trim()),
+        );
         const source = mirrorIsRicher || mirrorHasLegacyKey || !fromDb ? mirrored : fromDb;
         const { snapshot: withPhotos, moved } = await moveInlinePhotos(source);
         if (cancelled) return;
         // 旧版本的明文 Key：先搬进 Keystore，再从持久化数据里清掉
         const legacyKey = withPhotos.settings.apiKey.trim();
-        if (legacyKey) await writeSecureKey(legacyKey);
-        const secureKey = await readSecureKey();
+        const legacyProductSecret = withPhotos.settings.productApiSecret.trim();
+        if (legacyKey) await writeSecureKey(legacyKey, 'apiKey');
+        if (legacyProductSecret) await writeSecureKey(legacyProductSecret, 'productHmac');
+        const [secureKey, secureProductSecret] = await Promise.all([
+          readSecureKey('apiKey'),
+          readSecureKey('productHmac'),
+        ]);
         const runtimeSnapshot: Snapshot = {
           ...withPhotos,
-          settings: { ...withPhotos.settings, apiKey: secureKey || legacyKey },
+          settings: {
+            ...withPhotos.settings,
+            apiKey: secureKey || legacyKey,
+            productApiSecret: secureProductSecret || legacyProductSecret,
+          },
         };
         setSnapshot(runtimeSnapshot);
         // 数据库里还没有、或者刚搬过照片，就把这一份写回去
-        if (!fromDb || mirrorIsRicher || mirrorHasLegacyKey || moved || legacyKey) {
+        if (
+          !fromDb ||
+          mirrorIsRicher ||
+          mirrorHasLegacyKey ||
+          moved ||
+          legacyKey ||
+          legacyProductSecret
+        ) {
           void writeState(withoutSecret(runtimeSnapshot));
         }
       } catch {
@@ -635,7 +666,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     if (Object.prototype.hasOwnProperty.call(patch, 'apiKey')) {
-      void writeSecureKey(patch.apiKey ?? '');
+      void writeSecureKey(patch.apiKey ?? '', 'apiKey');
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'productApiSecret')) {
+      void writeSecureKey(patch.productApiSecret ?? '', 'productHmac');
     }
     setSnapshot((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
   }, []);

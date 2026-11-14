@@ -172,6 +172,7 @@ export function ReviewSheet({
       gtin: normalizeGtin(read('gtin') ?? draft.gtin),
       name: nameValue,
       brand: text('brand', draft.brand),
+      brandOwner: text('brandOwner', draft.brandOwner),
       manufacturer: text('manufacturer', draft.manufacturer),
       scCode: normalizeScCode(read('scCode') ?? draft.scCode),
       standardCode: text('standardCode', draft.standardCode ?? ''),
@@ -321,6 +322,18 @@ export function ReviewSheet({
           <TextInput name="brand" value={draft.brand} onChange={(event) => patch({ brand: event.target.value })} />
         </Field>
       </div>
+      <Field
+        label="品牌商 / 委托方"
+        flag={low('brandOwner')}
+        hint="包装上的品牌方、委托方、出品方或经销商；不是实际生产工厂"
+      >
+        <TextInput
+          name="brandOwner"
+          value={draft.brandOwner}
+          placeholder="例如 某某品牌管理有限公司"
+          onChange={(event) => patch({ brandOwner: event.target.value })}
+        />
+      </Field>
       <ManufacturerField
         value={draft.manufacturer}
         flag={low('manufacturer')}

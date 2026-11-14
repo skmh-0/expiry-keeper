@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Pencil, RotateCcw, Trash2 } from 'lucide-react';
+import { PawPrint, Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import type { PantryItem } from '../types';
 import { computeConsumption, earlierIso, formatGrams, laterIso } from '../lib/consumption';
 import { diffDays, formatCn, shiftDays, todayIso } from '../lib/shelfLife';
 import { summarizeStock, type StockDimension } from '../lib/estimate';
-import { CatMascot } from '../components/Cat';
 import { BrandTile } from '../components/BrandTile';
 import { PetAvatar } from '../components/PetAvatar';
 import { EmptyState, Field, Notice, Segmented, TextInput } from '../components/ui';
@@ -328,7 +327,7 @@ export function ConsumptionScreen({ onScan }: { onScan: () => void }) {
 
       {rows.length === 0 ? (
         <EmptyState
-          icon={<CatMascot size={56} />}
+          icon={<PawPrint size={56} strokeWidth={1.5} />}
           title={items.length ? '这段时间没有消耗记录' : '还没有商品记录'}
           hint={
             items.length

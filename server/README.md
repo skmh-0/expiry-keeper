@@ -3,16 +3,16 @@
 ## 启动
 
 ```powershell
-$env:HMAC_SECRET='替换成与 App 构建时一致的密钥'
+$env:HMAC_SECRET='替换成随机长密钥'
 $env:ADMIN_PASSWORD='替换成管理密码'
 $env:DEEPSEEK_API_KEY='服务端 DeepSeek Key'
+$env:BARCODE_APPCODE='可选，极速数据条码查询 AppCode'
 npm run server
 ```
 
 默认监听 `5280`，数据库为 `server/data/product-library.sqlite`。
-App 的「设置 → 商品查询库」填写 `http://电脑局域网地址:5280`。
-若要更换 HMAC 密钥，服务端设置 `HMAC_SECRET`，App 构建时设置同名值的
-`VITE_PRODUCT_API_HMAC_SECRET` 后重新打包。
+App 的「设置 → 商品查询库」填写服务地址和与服务端一致的 HMAC 密钥。
+HMAC 密钥通过 Android Keystore 保存，不进入 APK、快照或导出备份。
 
 ## API
 

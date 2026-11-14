@@ -153,7 +153,7 @@ export async function syncExpiryNotifications(
     body: entry.body,
     channelId: 'expiry',
     smallIcon: 'ic_stat_expiry',
-    iconColor: '#1f6b4c',
+    iconColor: '#3f7fa8',
     schedule: { at: new Date(entry.at), allowWhileIdle: true },
   }));
 
@@ -270,7 +270,7 @@ export async function syncAllNotifications(input: {
             ? 'vaccine'
             : 'expiry',
         smallIcon: 'ic_stat_expiry',
-        iconColor: '#1f6b4c',
+        iconColor: '#3f7fa8',
         schedule: { at: new Date(entry.at), allowWhileIdle: true },
       })),
     });
@@ -315,7 +315,7 @@ export async function sendTestNotification(): Promise<void> {
         body: '如果你在锁屏看到这条，到期提醒的通道是通的',
         channelId: 'expiry',
         smallIcon: 'ic_stat_expiry',
-        iconColor: '#1f6b4c',
+        iconColor: '#3f7fa8',
         schedule: { at: new Date(Date.now() + 5_000), allowWhileIdle: true },
       },
     ],

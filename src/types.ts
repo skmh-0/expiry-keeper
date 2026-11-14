@@ -78,6 +78,8 @@ export type Sku = {
   gtin: string;
   name: string;
   brand: string;
+  /** 品牌商 / 委托方 / 出品方，不等同于实际生产厂家 */
+  brandOwner: string;
   manufacturer: string;
   scCode?: string;
   standardCode?: string;
@@ -149,6 +151,8 @@ export type Settings = {
   reminders?: ReminderSettings;
   /** 商品查询库地址；留空时跳过查库直接使用 AI */
   productApiUrl?: string;
+  /** 商品查询库 HMAC 密钥；仅存 Android Keystore，不进入快照和备份 */
+  productApiSecret: string;
 };
 
 export type VerifyMode = 'auto' | 'always' | 'off';

@@ -1,6 +1,8 @@
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
+import { fileURLToPath } from 'node:url';
 import {
+  cacheExternalProduct,
   enqueueContribution,
   getProduct,
   productCounts,
@@ -19,6 +21,8 @@ import {
   validUserHash,
 } from './validation.mjs';
 
+const defaultReleaseDir = fileURLToPath(new URL('../release/', import.meta.url));
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
@@ -36,6 +40,7 @@ function sanitizedContribution(rawProduct) {
   return {
     name: text(rawProduct.name, LIMITS.name),
     brand: text(rawProduct.brand, LIMITS.brand),
+    brandOwner: text(rawProduct.brandOwner, LIMITS.brandOwner),
     manufacturer: text(rawProduct.manufacturer, LIMITS.manufacturer),
     category: rawProduct.category,
     kind: rawProduct.kind,
@@ -61,7 +66,10 @@ function adminPage(query, products) {
       (product) => `<tr>
         <td><code>${escapeHtml(product.barcode)}</code></td>
         <td>${escapeHtml(product.name)}<br><small>${escapeHtml(product.brand)}</small></td>
-        <td>${escapeHtml(product.manufacturer)}</td>
+        <td>
+          品牌商：${escapeHtml(product.brandOwner || '')}<br>
+          <small>厂家：${escapeHtml(product.manufacturer || '')}</small>
+        </td>
         <td>${escapeHtml(product.category ?? '')}</td>
         <td>${product.verified ? '已验证' : '待验证'}${product.humanConfirmed ? ' · 人工确认' : ''}</td>
         <td>${escapeHtml(product.status)}</td>
@@ -76,7 +84,8 @@ function adminPage(query, products) {
               <input type="hidden" name="action" value="edit">
               <label>名称<input name="name" value="${escapeHtml(product.name)}"></label>
               <label>品牌<input name="brand" value="${escapeHtml(product.brand)}"></label>
-              <label>厂家<input name="manufacturer" value="${escapeHtml(product.manufacturer)}"></label>
+              <label>品牌商<input name="brandOwner" value="${escapeHtml(product.brandOwner || '')}"></label>
+              <label>生产厂家<input name="manufacturer" value="${escapeHtml(product.manufacturer || '')}"></label>
               <label>分类<input name="category" value="${escapeHtml(product.category ?? '')}"></label>
               <label>用途<input name="kind" value="${escapeHtml(product.kind ?? '')}"></label>
               <label>保质期月数<input name="shelfLifeMonths" type="number" value="${escapeHtml(product.shelfLifeMonths ?? '')}"></label>
@@ -100,7 +109,7 @@ button{padding:6px 10px;border:1px solid #d9d1c1;border-radius:6px;background:#f
 </style></head><body>
 <h1>商品库管理</h1>
 <form class="search" method="get"><input name="q" value="${escapeHtml(query)}" placeholder="搜索条码、名称、品牌或厂家"><button>搜索</button></form>
-<table><thead><tr><th>条码</th><th>商品</th><th>厂家</th><th>分类</th><th>状态</th><th>发布</th><th>管理</th></tr></thead>
+<table><thead><tr><th>条码</th><th>商品</th><th>品牌商 / 厂家</th><th>分类</th><th>状态</th><th>发布</th><th>管理</th></tr></thead>
 <tbody>${rows || '<tr><td colspan="7">没有结果</td></tr>'}</tbody></table>
 </body></html>`;
 }
@@ -111,6 +120,8 @@ export function createApp({
   adminPassword = process.env.ADMIN_PASSWORD,
   rateLimitMax = 60,
   now = Date.now,
+  releaseDir = defaultReleaseDir,
+  barcodeLookup,
 } = {}) {
   const app = express();
   app.disable('x-powered-by');
@@ -130,6 +141,19 @@ export function createApp({
     }),
   );
   app.use(express.urlencoded({ extended: false, limit: '16kb' }));
+  app.use(
+    '/release',
+    express.static(releaseDir, {
+      fallthrough: true,
+      index: false,
+      setHeaders: (res, filePath) => {
+        res.setHeader(
+          'Cache-Control',
+          filePath.endsWith('version.json') ? 'no-store' : 'public, max-age=300',
+        );
+      },
+    }),
+  );
 
   const limiter = rateLimit({
     windowMs: 60_000,
@@ -148,10 +172,19 @@ export function createApp({
   app.use('/api/v1/product', hmac);
   app.use('/api/v1/contribute', hmac);
 
-  app.get('/api/v1/product/:barcode', (req, res) => {
+  app.get('/api/v1/product/:barcode', async (req, res) => {
     const barcode = normalizeBarcode(req.params.barcode);
     if (!barcode) return res.status(400).json({ error: '条码长度应为 8-14 位数字' });
-    const product = getProduct(db, barcode);
+    let product = getProduct(db, barcode);
+    if (!product && barcodeLookup) {
+      try {
+        const external = await barcodeLookup(barcode);
+        if (external) product = cacheExternalProduct(db, external);
+      } catch (error) {
+        // 外部条码服务失败时保持未命中，让 App 继续走 AI 或手工录入。
+        console.warn('[barcode] lookup unavailable:', error instanceof Error ? error.message : 'unknown error');
+      }
+    }
     if (!product) return res.status(404).json({ found: false, error: '商品库暂无记录' });
     res.json({ found: true, product });
   });
@@ -192,6 +225,7 @@ export function createApp({
           barcode,
           name: req.body.name,
           brand: req.body.brand,
+          brandOwner: req.body.brandOwner,
           manufacturer: req.body.manufacturer,
           category: req.body.category || undefined,
           kind: req.body.kind || undefined,

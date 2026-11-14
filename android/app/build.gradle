@@ -1,5 +1,6 @@
 apply plugin: 'com.android.application'
 
+def openSourceBuild = project.hasProperty("openSourceBuild")
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
@@ -10,11 +11,12 @@ android {
     namespace "com.skmh.expirykeeper"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.skmh.expirykeeper"
+        applicationId openSourceBuild ? "com.skmh.expirykeeper.opensource" : "com.skmh.expirykeeper"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 57
-        versionName "2.0"
+        versionCode openSourceBuild ? 1 : 61
+        versionName openSourceBuild ? "2.1.0-open" : "2.1.1"
+        manifestPlaceholders = [appLabel: openSourceBuild ? "效期管家开源版" : "效期管家"]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

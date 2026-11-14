@@ -41,6 +41,7 @@ function cleanProduct(barcode, name = '测试猫粮') {
     barcode,
     name,
     brand: '测试品牌',
+    brandOwner: '测试品牌管理有限公司',
     manufacturer: '测试宠物食品有限公司',
     category: 'dry',
     kind: 'staple',
@@ -60,6 +61,39 @@ test('health 公开，商品查询必须 HMAC 签名', async () => {
     assert.equal(res.body.ok, true);
   });
   await request(app).get('/api/v1/product/6901234567892').expect(401);
+  db.close();
+});
+
+test('本地未命中时调用外部条码源并缓存结果', async () => {
+  const db = openDatabase(':memory:');
+  const barcode = '6901234567892';
+  let calls = 0;
+  const app = createApp({
+    db,
+    hmacSecret: SECRET,
+    adminPassword: ADMIN,
+    barcodeLookup: async (value) => {
+      calls += 1;
+      return cleanProduct(value, '外部条码猫粮');
+    },
+  });
+  const path = `/api/v1/product/${barcode}`;
+  await request(app)
+    .get(path)
+    .set(signedHeaders('GET', path))
+    .expect(200)
+    .expect((res) => {
+      assert.equal(res.body.product.name, '外部条码猫粮');
+      assert.equal(res.body.product.verified, false);
+    });
+  assert.equal(calls, 1);
+  assert.equal(getProduct(db, barcode).name, '外部条码猫粮');
+
+  await request(app)
+    .get(path)
+    .set(signedHeaders('GET', path))
+    .expect(200);
+  assert.equal(calls, 1);
   db.close();
 });
 
@@ -134,6 +168,7 @@ test('同字段三个不同 user_hash 一致后商品 verified=1', async () => {
   assert.equal(product.verified, true);
   assert.ok(product.verifiedFields.includes('name'));
   assert.ok(product.verifiedFields.includes('manufacturer'));
+  assert.equal(product.brandOwner, '测试品牌管理有限公司');
   const app = createApp({ db, hmacSecret: SECRET, adminPassword: ADMIN });
   const path = `/api/v1/product/${barcode}`;
   await request(app)
@@ -180,6 +215,7 @@ test('password 管理页支持搜索与下架', async () => {
       action: 'edit',
       name: '人工确认猫粮',
       brand: '人工品牌',
+      brandOwner: '人工品牌管理有限公司',
       manufacturer: '人工确认工厂',
       category: 'dry',
       kind: 'staple',
@@ -189,6 +225,8 @@ test('password 管理页支持搜索与下架', async () => {
     .expect(303);
   const edited = searchProducts(db, '6901234567892')[0];
   assert.equal(edited.name, '人工确认猫粮');
+  assert.equal(edited.brandOwner, '人工品牌管理有限公司');
+  assert.equal(edited.manufacturer, '人工确认工厂');
   assert.equal(edited.humanConfirmed, true);
   db.close();
 });

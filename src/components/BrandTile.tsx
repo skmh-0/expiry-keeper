@@ -1,4 +1,4 @@
-import { CatMark } from './Cat';
+import { PawPrint } from 'lucide-react';
 
 /**
  * 商品图标：用品牌名显示。字多自动缩小，没有品牌就退到名称首字，再没有就显示猫。
@@ -22,7 +22,7 @@ export function BrandTile({
   if (!text) {
     return (
       <span className={`${className} brand-tile-empty`}>
-        <CatMark size={size === 'lg' ? 30 : 20} />
+        <PawPrint size={size === 'lg' ? 30 : 20} strokeWidth={1.6} />
       </span>
     );
   }

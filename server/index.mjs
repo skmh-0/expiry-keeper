@@ -1,6 +1,7 @@
 import { openDatabase, startContributionWorker } from './db.mjs';
 import { createDeepSeekCleaner } from './cleaner.mjs';
 import { createApp } from './app.mjs';
+import { createBarcodeLookup } from './barcode.mjs';
 
 const port = Number(process.env.PORT || 5280);
 const host = process.env.HOST || '0.0.0.0';
@@ -10,6 +11,10 @@ const cleaner = createDeepSeekCleaner({
   apiKey: process.env.DEEPSEEK_API_KEY,
   baseUrl: process.env.DEEPSEEK_BASE_URL,
   model: process.env.DEEPSEEK_MODEL,
+});
+const barcodeLookup = createBarcodeLookup({
+  appCode: process.env.BARCODE_APPCODE,
+  endpoint: process.env.BARCODE_API_URL,
 });
 const stopWorker = startContributionWorker(db, cleaner, {
   intervalMs: Number(process.env.WORKER_INTERVAL_MS || 15_000),
@@ -21,6 +26,7 @@ const app = createApp({
   db,
   hmacSecret: process.env.HMAC_SECRET,
   adminPassword: process.env.ADMIN_PASSWORD,
+  barcodeLookup,
 });
 const server = app.listen(port, host, () => {
   console.log(`[product-library] http://${host}:${port}`);

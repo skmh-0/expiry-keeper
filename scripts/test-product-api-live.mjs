@@ -64,6 +64,7 @@ try {
       remindDays: 7,
       verifyMode: 'off',
       productApiUrl: backendUrl,
+      productApiSecret: 'test-product-hmac-secret',
       reminders: {
         expiryEnabled: false,
         vaccineEnabled: false,

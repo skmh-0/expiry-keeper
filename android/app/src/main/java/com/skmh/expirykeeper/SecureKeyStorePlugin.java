@@ -28,8 +28,12 @@ import javax.crypto.spec.GCMParameterSpec;
 public class SecureKeyStorePlugin extends Plugin {
 
     private static final String PREFS = "expiry_keeper_secure";
-    private static final String PREF_CIPHER = "api_key_cipher";
-    private static final String KEY_ALIAS = "expiry_keeper_api_key";
+    private static final String API_KEY_SLOT = "apiKey";
+    private static final String PRODUCT_HMAC_SLOT = "productHmac";
+    private static final String API_KEY_CIPHER = "api_key_cipher";
+    private static final String PRODUCT_HMAC_CIPHER = "product_hmac_cipher";
+    private static final String API_KEY_ALIAS = "expiry_keeper_api_key";
+    private static final String PRODUCT_HMAC_ALIAS = "expiry_keeper_product_hmac";
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";
     private static final int GCM_TAG_BITS = 128;
 
@@ -46,18 +50,19 @@ public class SecureKeyStorePlugin extends Plugin {
 
     @PluginMethod
     public void getKey(PluginCall call) {
+        String slot = normalizeSlot(call.getString("slot", API_KEY_SLOT));
         JSObject result = new JSObject();
-        String encrypted = prefs().getString(PREF_CIPHER, "");
+        String encrypted = prefs().getString(cipherPref(slot), "");
         if (encrypted == null || encrypted.isEmpty()) {
             result.put("key", "");
             call.resolve(result);
             return;
         }
         try {
-            result.put("key", decrypt(encrypted));
+            result.put("key", decrypt(encrypted, keyAlias(slot)));
         } catch (Throwable error) {
             // Keystore 密钥失效（例如恢复备份到新机）时，清掉无法解密的密文
-            prefs().edit().remove(PREF_CIPHER).apply();
+            prefs().edit().remove(cipherPref(slot)).apply();
             result.put("key", "");
         }
         call.resolve(result);
@@ -65,40 +70,61 @@ public class SecureKeyStorePlugin extends Plugin {
 
     @PluginMethod
     public void setKey(PluginCall call) {
+        String slot = normalizeSlot(call.getString("slot", API_KEY_SLOT));
         String key = call.getString("key", "");
         if (key == null) key = "";
         key = key.trim();
         if (key.isEmpty()) {
-            prefs().edit().remove(PREF_CIPHER).apply();
-            deleteKey();
+            prefs().edit().remove(cipherPref(slot)).apply();
+            deleteKey(keyAlias(slot));
             call.resolve();
             return;
         }
         try {
-            prefs().edit().putString(PREF_CIPHER, encrypt(key)).apply();
+            prefs().edit().putString(cipherPref(slot), encrypt(key, keyAlias(slot))).apply();
             call.resolve();
         } catch (Throwable error) {
-            call.reject("保存 API Key 失败：" + describe(error));
+            call.reject("保存密钥失败：" + describe(error));
         }
     }
 
     @PluginMethod
     public void clearKey(PluginCall call) {
-        prefs().edit().remove(PREF_CIPHER).apply();
-        deleteKey();
+        String requested = call.getString("slot", null);
+        if (requested == null) {
+            prefs().edit().remove(API_KEY_CIPHER).remove(PRODUCT_HMAC_CIPHER).apply();
+            deleteKey(API_KEY_ALIAS);
+            deleteKey(PRODUCT_HMAC_ALIAS);
+        } else {
+            String slot = normalizeSlot(requested);
+            prefs().edit().remove(cipherPref(slot)).apply();
+            deleteKey(keyAlias(slot));
+        }
         call.resolve();
     }
 
-    private SecretKey getOrCreateKey() throws Exception {
+    private String normalizeSlot(String slot) {
+        return PRODUCT_HMAC_SLOT.equals(slot) ? PRODUCT_HMAC_SLOT : API_KEY_SLOT;
+    }
+
+    private String cipherPref(String slot) {
+        return PRODUCT_HMAC_SLOT.equals(slot) ? PRODUCT_HMAC_CIPHER : API_KEY_CIPHER;
+    }
+
+    private String keyAlias(String slot) {
+        return PRODUCT_HMAC_SLOT.equals(slot) ? PRODUCT_HMAC_ALIAS : API_KEY_ALIAS;
+    }
+
+    private SecretKey getOrCreateKey(String alias) throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore");
         store.load(null);
-        if (store.containsAlias(KEY_ALIAS)) {
-            return ((KeyStore.SecretKeyEntry) store.getEntry(KEY_ALIAS, null)).getSecretKey();
+        if (store.containsAlias(alias)) {
+            return ((KeyStore.SecretKeyEntry) store.getEntry(alias, null)).getSecretKey();
         }
         KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
         generator.init(
             new KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
+                alias,
                 KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -109,9 +135,9 @@ public class SecureKeyStorePlugin extends Plugin {
         return generator.generateKey();
     }
 
-    private String encrypt(String plain) throws Exception {
+    private String encrypt(String plain, String alias) throws Exception {
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey());
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey(alias));
         byte[] iv = cipher.getIV();
         byte[] body = cipher.doFinal(plain.getBytes(StandardCharsets.UTF_8));
         byte[] combined = new byte[iv.length + body.length];
@@ -120,7 +146,7 @@ public class SecureKeyStorePlugin extends Plugin {
         return Base64.encodeToString(combined, Base64.NO_WRAP);
     }
 
-    private String decrypt(String encoded) throws Exception {
+    private String decrypt(String encoded, String alias) throws Exception {
         byte[] combined = Base64.decode(encoded, Base64.NO_WRAP);
         if (combined.length <= 12) throw new IllegalStateException("密文长度不正确");
         byte[] iv = new byte[12];
@@ -128,15 +154,15 @@ public class SecureKeyStorePlugin extends Plugin {
         System.arraycopy(combined, 0, iv, 0, 12);
         System.arraycopy(combined, 12, body, 0, body.length);
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), new GCMParameterSpec(GCM_TAG_BITS, iv));
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(alias), new GCMParameterSpec(GCM_TAG_BITS, iv));
         return new String(cipher.doFinal(body), StandardCharsets.UTF_8);
     }
 
-    private void deleteKey() {
+    private void deleteKey(String alias) {
         try {
             KeyStore store = KeyStore.getInstance("AndroidKeyStore");
             store.load(null);
-            if (store.containsAlias(KEY_ALIAS)) store.deleteEntry(KEY_ALIAS);
+            if (store.containsAlias(alias)) store.deleteEntry(alias);
         } catch (Throwable ignored) {
             // 删除失败时密文已清空，不影响安全
         }
